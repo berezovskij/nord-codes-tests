@@ -1,0 +1,88 @@
+name: aqa-isolated
+
+x-sandbox: &sandbox
+  platform: linux/arm64
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  privileged: false
+  ipc: private
+  init: true
+  restart: "no"
+  pids_limit: 128
+  cpus: 1.0
+  mem_limit: 768m
+  memswap_limit: 768m
+  shm_size: 16m
+  ulimits:
+    core: {soft: 0, hard: 0}
+    nofile: {soft: 1024, hard: 1024}
+  logging:
+    driver: local
+    options:
+      max-size: "5m"
+      max-file: "2"
+
+services:
+  wiremock:
+    <<: *sandbox
+    image: wiremock/wiremock:3.13.1@sha256:d61e7720f89483fdef5366843b58d1dfd06bcce5828179c9f2f54de5c28354b0
+    pull_policy: never
+    network_mode: none
+    user: "10002:10002"
+    working_dir: /home/wiremock
+    environment:
+      JAVA_OPTS: "-Xms32m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=32m -Djava.io.tmpdir=/tmp -Duser.home=/tmp"
+      JAVA_TOOL_OPTIONS: ""
+      JDK_JAVA_OPTIONS: ""
+      _JAVA_OPTIONS: ""
+    command: ["--port", "8888", "--bind-address", "127.0.0.1", "--root-dir", "/home/wiremock", "--disable-banner"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=0700,uid=10002,gid=10002
+      - /home/wiremock:rw,noexec,nosuid,nodev,size=64m,mode=0700,uid=10002,gid=10002
+
+  app:
+    <<: *sandbox
+    image: aqa-untrusted-app:local-java17-v1
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: none
+    network_mode: service:wiremock
+    depends_on:
+      wiremock:
+        condition: service_started
+    user: "10001:10001"
+    environment:
+      JAVA_TOOL_OPTIONS: ""
+      JDK_JAVA_OPTIONS: ""
+      _JAVA_OPTIONS: ""
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=0700,uid=10001,gid=10001
+
+  runner:
+    <<: *sandbox
+    profiles: [tests]
+    image: aqa-test-runner:local-java17-v1
+    pull_policy: never
+    build:
+      context: ./tests
+      dockerfile: Dockerfile
+    network_mode: service:wiremock
+    depends_on:
+      wiremock:
+        condition: service_started
+      app:
+        condition: service_started
+    user: "10003:10003"
+    environment:
+      MAVEN_CONFIG: /tmp/maven-config
+      MAVEN_OPTS: "-Xms32m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=32m -Duser.home=/tmp -Djava.io.tmpdir=/tmp"
+      JAVA_TOOL_OPTIONS: ""
+      JDK_JAVA_OPTIONS: ""
+      _JAVA_OPTIONS: ""
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=0700,uid=10003,gid=10003
+      - /work:rw,noexec,nosuid,nodev,size=128m,mode=0700,uid=10003,gid=10003

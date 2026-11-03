@@ -1,0 +1,9 @@
+/artifacts/
+/submission/
+/.aqa-run.lock/
+**/target/
+**/allure-results/
+**/allure-report/
+.env
+.env.*
+.DS_Store
